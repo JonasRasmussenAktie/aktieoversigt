@@ -12,6 +12,7 @@ import html
 import sys
 import webbrowser
 
+import kandidat
 import morgenbrief as mb
 
 LABELS = {
@@ -170,6 +171,18 @@ details{background:var(--kort);border:1px solid var(--kant);border-radius:10px;p
 summary{cursor:pointer;font-weight:600}
 pre{white-space:pre-wrap;font-family:inherit;margin:10px 0 0;font-size:.92rem}
 footer{margin-top:32px;font-size:.8rem;color:var(--dæmpet)}
+.bred{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.top{border:2px solid var(--accent)}
+.rang{display:inline-block;background:var(--accent);color:var(--bg);border-radius:99px;
+  padding:1px 10px;font-size:.78rem;font-weight:600;margin-right:8px}
+.hoved{font-size:1.15rem;font-weight:650}
+.bar{height:8px;background:var(--kant);border-radius:99px;overflow:hidden;margin:8px 0 6px}
+.bar span{display:block;height:100%;background:var(--accent)}
+.grunde,.imod{margin:4px 0 8px 18px;padding:0;font-size:.92rem}
+.imod{color:var(--dæmpet)}
+.kort p{margin:8px 0 2px}
+.tal-stor{font-size:1.3rem;font-weight:650}
+.noter{font-size:.85rem;color:var(--dæmpet);margin:10px 0}
 </style>
 </head>
 <body>
@@ -178,6 +191,23 @@ footer{margin-top:32px;font-size:.8rem;color:var(--dæmpet)}
   <div class="lille">Opdateret {{OPDATERET}}</div>
   <div class="advarsel">Dette er information, ikke rådgivning. Ingen kan forudsige kurser.
     Invester kun penge, du har råd til at tabe.</div>
+
+  <h2>Kandidater lige nu</h2>
+  <p class="lille">Din prøve: modellen rangerer aktierne på din liste. Det er et eksperiment til at
+    teste, om den hjælper, ikke et råd. Test med fiktive penge først.</p>
+  <div class="gitter bred">{{KANDIDATER}}</div>
+  <details style="margin-top:12px"><summary>Sådan regnes scoren ud</summary>
+    <pre>Scoren går fra 0 til 100 og regnes kun ud fra kursudviklingen:
+- Styrke (op til 40 point): hvor kraftigt aktien er steget de seneste 3 og 6 måneder, sammenlignet med de andre på din liste.
+- Ro (op til 20 point): hvor meget udvikling der er pr. udsving. Jævn stigning scorer højere end vilde udsving.
+- Trend (op til 30 point): 15 point for at kursen ligger over sit 50-dages gennemsnit, og 15 for at 50-dages gennemsnittet ligger over 200-dages gennemsnittet.
+- Stabilitet (10 point): aktien er ikke faldet mere end 15% fra årets top og er ikke mere end 20% over sit 50-dages gennemsnit.
+
+Ideen kaldes momentum: det, der har gået godt, fortsætter ofte lidt. Det er en af de mest undersøgte og enkleste strategier, men den virker ikke altid, og den kan vende brat. Modellen kender ikke selskabets regnskaber eller nyheder. ETF'er er ikke med som kandidater, fordi de er sammenligningsgrundlag.</pre>
+  </details>
+
+  <h2>Resultater af din prøve</h2>
+  {{RESULTATER}}
 
   <h2>Markedet i dag</h2>
   <div class="gitter">{{MARKED}}</div>
@@ -235,6 +265,97 @@ document.querySelectorAll('th[data-k]').forEach(th => {
 """
 
 
+def kandidatkort(k, rang):
+    v = k["tal"]
+    grunde = "".join(f"<li>{e(g)}</li>" for g in k["grunde"])
+    imod = "".join(f"<li>{e(g)}</li>" for g in k["imod"])
+    top = " top" if rang == 1 else ""
+    return (
+        f'<article class="kort{top}">'
+        f'<div><span class="rang">Nr. {rang}</span><span class="hoved">{e(k["navn"])}</span></div>'
+        f'<div class="bar" role="img" aria-label="Score {k["score"]} af 100">'
+        f'<span style="width:{k["score"]}%"></span></div>'
+        f'<div class="lille">Score: {k["score"]} / 100 · Kurs: {v["kurs"]:.2f} · I dag: '
+        f'<span class="{klasse(v["dag"])}">{pil(v["dag"])} {v["dag"]:+.1f}%</span></div>'
+        f"<p><strong>Hvorfor den scorer højt</strong></p><ul class=\"grunde\">{grunde}</ul>"
+        f"<p><strong>Hvad taler imod</strong></p><ul class=\"imod\">{imod}</ul>"
+        "</article>"
+    )
+
+
+def kr(beløb):
+    return f"{beløb:,.0f}".replace(",", ".") + " kr."
+
+
+def resultatafsnit(rækker):
+    if not rækker:
+        return (
+            '<p class="tom">Ingen kandidater logget endnu. Ugens kandidater bliver gemt automatisk '
+            "første gang i hver uge, og resultaterne dukker op her.</p>"
+        )
+
+    uger = {r["uge"] for r in rækker}
+
+    def kort(titel, udvalg):
+        n = len(udvalg)
+        slog = sum(1 for r in udvalg if r["forskel"] > 0)
+        snit = sum(r["forskel"] for r in udvalg) / n
+        inv = n * kandidat.INVESTERET
+        værdi = sum(kandidat.INVESTERET * (1 + r["ny"] / 100) for r in udvalg)
+        bm = sum(kandidat.INVESTERET * (1 + r["bm"] / 100) for r in udvalg)
+        return (
+            '<div class="kort">'
+            f"<h3>{e(titel)}</h3>"
+            f'<p class="tal-stor {klasse(snit)}">{pil(snit)} {snit:+.1f} procentpoint</p>'
+            '<p class="lille">i gennemsnit i forhold til verdensmarkedet (VT)</p>'
+            f"<p>Slog verdensmarkedet: <strong>{slog} af {n}</strong></p>"
+            f"<p>Fiktive {kr(kandidat.INVESTERET)} i hver: {kr(inv)} lagt ind er nu "
+            f"<strong>{kr(værdi)}</strong>. Samme beløb i VT ville være <strong>{kr(bm)}</strong>.</p>"
+            "</div>"
+        )
+
+    nr1 = [r for r in rækker if r["rang"] == 1]
+    kort_html = kort("Nr. 1 hver uge", nr1) + kort("Alle loggede kandidater", rækker)
+
+    if len(uger) < 12:
+        dom = (
+            f"Der er kun gået {len(uger)} uge(r). Det er for tidligt at sige noget. Der skal gå "
+            "mindst 12 uger (3 måneder), og helst et halvt år, før tallene betyder noget. I starten "
+            "fylder held og uheld rigtig meget."
+        )
+    else:
+        dom = (
+            "Husk: modellen har kun vist værdi, hvis kandidaterne slår verdensmarkedet over lang tid "
+            "og i mange uger. Hvis ikke, er et bredt indeks det bedste valg."
+        )
+
+    senest = sorted(rækker, key=lambda r: (r["dato"], -r["rang"]), reverse=True)[:30]
+    tr = "".join(
+        "<tr>"
+        f'<th scope="row">{e(r["uge"])}</th>'
+        f"<td>{r['rang']}</td>"
+        f'<td style="text-align:left">{e(r["navn"])}</td>'
+        f'<td class="{klasse(r["ny"])}">{r["ny"]:+.1f}%</td>'
+        f'<td>{r["bm"]:+.1f}%</td>'
+        f'<td class="{klasse(r["forskel"])}">{pil(r["forskel"])} {r["forskel"]:+.1f}</td>'
+        "</tr>"
+        for r in senest
+    )
+    tabel = (
+        '<div class="rul" style="margin-top:12px"><table style="min-width:520px">'
+        "<thead><tr><th>Uge</th><th>Nr.</th><th style=\"text-align:left\">Aktie</th>"
+        "<th>Siden</th><th>VT siden</th><th>Forskel</th></tr></thead>"
+        f"<tbody>{tr}</tbody></table></div>"
+    )
+    return (
+        f'<div class="gitter bred">{kort_html}</div>'
+        f'<p class="noter"><strong>{e(dom)}</strong></p>'
+        f"{tabel}"
+        '<p class="noter">Beregnet fra den kurs, der var, da kandidaten blev gemt. Valutaudsving '
+        "og handelsgebyrer er ikke med, så tallene for udenlandske aktier kan afvige fra virkeligheden.</p>"
+    )
+
+
 def main():
     åbn_browser = "--ingen-browser" not in sys.argv
 
@@ -268,8 +389,17 @@ def main():
 
     tabel = "".join(tabelrække(t, tal[t], kurser[t]) for t in tal)
 
+    kand = kandidat.beregn(kurser, tal)
+    kandidat.log_ugens(kand, kurser)
+    kandidater_html = "".join(kandidatkort(k, i) for i, k in enumerate(kand[:3], 1)) or (
+        '<p class="tom">For få aktier med nok data til at lave en rangering.</p>'
+    )
+    resultater_html = resultatafsnit(kandidat.resultater(kurser))
+
     side = (
         SKABELON.replace("{{OPDATERET}}", e(dt.datetime.now().strftime("%d-%m-%Y kl. %H:%M")))
+        .replace("{{KANDIDATER}}", kandidater_html)
+        .replace("{{RESULTATER}}", resultater_html)
         .replace("{{MARKED}}", marked)
         .replace("{{SIGNALER}}", signaler_html)
         .replace("{{TABEL}}", tabel)
