@@ -40,6 +40,7 @@ jobs:
           git config user.name "aktie-bot"
           git config user.email "bot@users.noreply.github.com"
           git add signaler.csv || true
+          git add kandidater.csv || true
           git diff --cached --quiet || (git commit -m "Opdater signal-log" && git push)
 
       - name: Klargør hjemmesiden
